@@ -1,0 +1,913 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>标书风控 Agent</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #17212f;
+        --muted: #6b7688;
+        --line: #d9e0ea;
+        --soft-line: #e8edf4;
+        --page: #f4f6f9;
+        --surface: #ffffff;
+        --panel: #eef3f8;
+        --accent: #1769aa;
+        --accent-strong: #0d4778;
+        --accent-soft: #e8f2fb;
+        --good: #167052;
+        --good-soft: #e8f6ef;
+        --bad: #b83a3a;
+        --bad-soft: #fdecec;
+        --warn: #9a6200;
+        --warn-soft: #fff4dc;
+        --shadow: 0 12px 30px rgba(23, 33, 47, 0.08);
+      }
+      * { box-sizing: border-box; }
+      body {
+        position: relative;
+        min-height: 100vh;
+        margin: 0;
+        font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background: var(--page);
+        font-size: 14px;
+      }
+      .page-bg {
+        position: fixed;
+        inset: 0;
+        z-index: -2;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center top;
+        opacity: 0.28;
+        filter: saturate(1.04) contrast(0.98);
+        pointer-events: none;
+      }
+      body::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        background:
+          linear-gradient(180deg, rgba(251,252,254,0.8) 0, rgba(244,246,249,0.84) 280px, rgba(244,246,249,0.93) 100%),
+          radial-gradient(circle at 24% 0%, rgba(255,255,255,0.62), rgba(255,255,255,0) 36%);
+        pointer-events: none;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        padding: 0;
+        border-bottom: 1px solid rgba(217, 224, 234, 0.82);
+        background: rgba(255, 255, 255, 0.92);
+        backdrop-filter: blur(12px);
+      }
+      .topbar {
+        width: 100%;
+        padding: 14px 28px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+      }
+      h1 { margin: 0; font-size: 22px; font-weight: 750; letter-spacing: 0; }
+      h1::after {
+        content: "投标风险控制台";
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .hero {
+        position: relative;
+        margin: 0 28px 18px;
+        min-height: 158px;
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+        gap: 22px;
+        align-items: stretch;
+        overflow: hidden;
+        border: 1px solid var(--soft-line);
+        border-radius: 8px;
+        background: #fff;
+        box-shadow: var(--shadow);
+      }
+      .hero-art {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center;
+        opacity: 0.88;
+      }
+      .hero::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(90deg, rgba(255,255,255,0.97) 0%, rgba(255,255,255,0.9) 36%, rgba(255,255,255,0.48) 62%, rgba(255,255,255,0.08) 100%),
+          linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.62));
+        pointer-events: none;
+      }
+      .hero-copy {
+        position: relative;
+        z-index: 2;
+        padding: 22px 24px;
+        display: grid;
+        align-content: center;
+        gap: 10px;
+      }
+      .hero-kicker {
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 800;
+      }
+      .hero-title {
+        max-width: 620px;
+        font-size: 27px;
+        line-height: 1.22;
+        font-weight: 780;
+      }
+      .hero-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .hero-status {
+        position: relative;
+        z-index: 2;
+        align-self: end;
+        justify-self: end;
+        width: min(100%, 360px);
+        margin: 18px;
+        padding: 14px;
+        border: 1px solid rgba(255,255,255,0.8);
+        border-radius: 8px;
+        background: rgba(255,255,255,0.82);
+        backdrop-filter: blur(10px);
+      }
+      main {
+        display: grid;
+        grid-template-columns: 360px minmax(0, 1fr);
+        min-height: calc(100vh - 70px);
+        max-width: 1680px;
+        margin: 0 auto;
+      }
+      aside {
+        border-right: 1px solid var(--soft-line);
+        padding: 4px 18px 28px;
+        background: rgba(238, 243, 248, 0.72);
+      }
+      aside.stack > div {
+        border: 1px solid var(--soft-line);
+        border-radius: 8px;
+        padding: 14px;
+        background: rgba(255, 255, 255, 0.86);
+        box-shadow: 0 8px 20px rgba(23, 33, 47, 0.04);
+      }
+      .side-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 4px;
+        font-weight: 760;
+      }
+      .side-note {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      section { padding: 24px 28px 34px; min-width: 0; }
+      label {
+        display: block;
+        font-size: 12px;
+        color: var(--muted);
+        margin: 12px 0 6px;
+        font-weight: 700;
+      }
+      input, select, textarea {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px 11px;
+        background: #fff;
+        color: var(--ink);
+        font: inherit;
+        transition: border-color 0.16s ease, box-shadow 0.16s ease;
+      }
+      input:focus, select:focus, textarea:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(23, 105, 170, 0.14);
+        outline: none;
+      }
+      input[type="file"] {
+        padding: 8px;
+        background: #fbfcfe;
+      }
+      textarea { min-height: 260px; resize: vertical; font-family: Consolas, "Microsoft YaHei", monospace; }
+      button {
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: white;
+        border-radius: 8px;
+        padding: 9px 13px;
+        cursor: pointer;
+        font-weight: 600;
+        line-height: 1.2;
+        transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+        box-shadow: 0 8px 16px rgba(23, 105, 170, 0.18);
+      }
+      button:hover { background: var(--accent-strong); border-color: var(--accent-strong); transform: translateY(-1px); }
+      button:active { transform: translateY(0); box-shadow: none; }
+      button.secondary {
+        background: #fff;
+        color: var(--accent);
+        box-shadow: none;
+        border-color: #bfd2e4;
+      }
+      button.secondary:hover {
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+        border-color: #9fbdd8;
+      }
+      .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+      .stack { display: grid; gap: 14px; align-content: start; }
+      .toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+      .metric {
+        position: relative;
+        min-width: 124px;
+        padding: 13px 14px 12px;
+        border: 1px solid var(--soft-line);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: 0 8px 22px rgba(23, 33, 47, 0.05);
+        overflow: hidden;
+      }
+      .metric::before {
+        content: "";
+        position: absolute;
+        inset: 0 0 auto;
+        height: 3px;
+        background: var(--accent);
+      }
+      .metric:nth-child(1)::before { background: var(--bad); }
+      .metric:nth-child(3)::before { background: var(--warn); }
+      .metric:nth-child(4)::before { background: var(--good); }
+      .metric strong { display: block; margin-top: 5px; font-size: 24px; line-height: 1; }
+      table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        table-layout: fixed;
+        font-size: 14px;
+        background: var(--surface);
+      }
+      th, td {
+        border-bottom: 1px solid var(--line);
+        padding: 12px 11px;
+        text-align: left;
+        vertical-align: top;
+        overflow-wrap: anywhere;
+      }
+      tbody tr:hover td { background: #f8fbfd; }
+      th {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 750;
+        background: #f8fafc;
+      }
+      td a { color: var(--accent); font-weight: 600; text-decoration: none; }
+      td a:hover { text-decoration: underline; }
+      .tabs {
+        display: flex;
+        gap: 8px;
+        margin: 18px 0 16px;
+        padding: 6px;
+        border: 1px solid var(--soft-line);
+        border-radius: 8px;
+        background: #fff;
+        overflow-x: auto;
+        box-shadow: 0 8px 24px rgba(23, 33, 47, 0.05);
+      }
+      .tabs button {
+        flex: 0 0 auto;
+        background: transparent;
+        color: var(--muted);
+        border-color: transparent;
+        box-shadow: none;
+        padding: 8px 11px;
+      }
+      .tabs button:hover { background: #f0f5fa; color: var(--ink); transform: none; }
+      .tabs button.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+      .panel {
+        border: 1px solid var(--soft-line);
+        border-radius: 8px;
+        padding: 16px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+      .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 3px 9px;
+        font-size: 12px;
+        color: var(--muted);
+        background: #fbfcfe;
+      }
+      .high, .negative {
+        color: var(--bad);
+        font-weight: 750;
+      }
+      .medium, .unknown { color: var(--warn); font-weight: 750; }
+      .positive { color: var(--good); font-weight: 750; }
+      .muted { color: var(--muted); }
+      progress {
+        width: 200px;
+        height: 10px;
+        border: 0;
+        border-radius: 999px;
+        overflow: hidden;
+      }
+      progress::-webkit-progress-bar { background: #e6edf5; border-radius: 999px; }
+      progress::-webkit-progress-value { background: var(--accent); border-radius: 999px; }
+      section > div[id$="View"] {
+        border: 1px solid var(--soft-line);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+      section > div[id$="View"][hidden] { display: none; }
+      section > div[id$="View"] > table { border-radius: 8px; overflow: hidden; }
+      section > div[id$="View"] > .grid,
+      section > div[id$="View"] > .toolbar,
+      section > div[id$="View"] > textarea {
+        margin: 16px;
+      }
+      #rulesView, #systemView, #documentsView {
+        padding: 0;
+        border: 0;
+        box-shadow: none;
+        background: transparent;
+      }
+      #rulesView > .toolbar { margin: 0 0 12px; }
+      #rulesEditor {
+        margin: 0;
+        border-color: var(--soft-line);
+        box-shadow: var(--shadow);
+      }
+      #currentProject {
+        min-height: 38px;
+        display: flex;
+        align-items: center;
+        padding: 10px 12px;
+        border: 1px dashed #cbd7e3;
+        border-radius: 8px;
+        background: #fbfcfe;
+      }
+      aside .row button { flex: 1 1 145px; }
+      .primary-action {
+        width: 100%;
+      }
+      .action-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .action-grid button {
+        width: 100%;
+        min-height: 39px;
+      }
+      .project-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      .project-list button {
+        width: 100%;
+        display: grid;
+        gap: 3px;
+        justify-items: start;
+        border-color: var(--soft-line);
+        background: #fbfcfe;
+        color: var(--ink);
+        box-shadow: none;
+        text-align: left;
+      }
+      .project-list button:hover {
+        background: var(--accent-soft);
+        border-color: #9fbdd8;
+      }
+      .project-list small {
+        color: var(--muted);
+        font-weight: 500;
+      }
+      .row-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .row-actions button {
+        min-height: 30px;
+        padding: 6px 8px;
+        font-size: 12px;
+        box-shadow: none;
+      }
+      @media (max-width: 860px) {
+        main { grid-template-columns: 1fr; }
+        .hero {
+          margin: 0 14px 14px;
+          grid-template-columns: 1fr;
+        }
+        .hero::after {
+          background:
+            linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(255,255,255,0.86) 58%, rgba(255,255,255,0.48) 100%);
+        }
+        .hero-status {
+          justify-self: stretch;
+          margin-top: 0;
+        }
+        .grid { grid-template-columns: 1fr; }
+        aside { border-right: 0; border-bottom: 1px solid var(--line); }
+        header { align-items: flex-start; flex-direction: column; }
+        .topbar { align-items: flex-start; flex-direction: column; padding: 14px; }
+        section { padding: 18px 14px 28px; }
+        .metric { flex: 1 1 calc(50% - 10px); min-width: 0; }
+        progress { width: 100%; }
+        .action-grid { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <img class="page-bg" src="/app/assets/bid-risk-visual.png?v=3" alt="" aria-hidden="true" />
+    <header>
+      <div class="topbar">
+        <h1>标书风控 Agent</h1>
+        <div class="row">
+          <span class="muted" id="taskText">未开始任务</span>
+          <progress id="taskProgress" max="100" value="0"></progress>
+        </div>
+      </div>
+      <div class="hero">
+        <img class="hero-art" src="/app/assets/bid-risk-visual.png?v=2" alt="" aria-hidden="true" />
+        <div class="hero-copy">
+          <div class="hero-kicker">BID RISK CONTROL</div>
+          <div class="hero-title">把招标条款、废标风险、技术偏离和材料缺口收束到一个审核台。</div>
+          <div class="hero-meta">
+            <span class="pill">源文追溯</span>
+            <span class="pill">批量审核</span>
+            <span class="pill">一键检查包</span>
+          </div>
+        </div>
+        <div class="hero-status">
+          <div class="side-title">当前处理状态</div>
+          <div class="side-note">上传招标文件后，解析进度、风险扫描和偏离匹配会实时更新。</div>
+        </div>
+      </div>
+    </header>
+    <main>
+      <aside class="stack">
+        <div>
+          <div class="side-title">项目</div>
+          <div class="side-note">创建投标项目并绑定公司资料库。</div>
+          <label>项目名称</label>
+          <input id="projectName" value="演示投标项目" />
+          <label>招标名称</label>
+          <input id="tenderName" value="政务云平台建设招标" />
+          <label>公司 ID</label>
+          <input id="companyId" value="comp_demo" />
+          <div style="height: 12px"></div>
+          <button id="createProject" class="primary-action">新建项目</button>
+        </div>
+        <div>
+          <div class="side-title">最近项目 <button id="loadProjects" class="secondary">刷新</button></div>
+          <div class="side-note">选择已有项目继续审核和导出。</div>
+          <div id="projectList" class="project-list"></div>
+        </div>
+        <div>
+          <div class="side-title">招标文件</div>
+          <div class="side-note">支持 PDF、Word、Excel、文本和扫描图片。</div>
+          <label>招标文件</label>
+          <input id="tenderFile" type="file" />
+          <div style="height: 12px"></div>
+          <button id="uploadTender" class="primary-action">上传并解析</button>
+        </div>
+        <div>
+          <div class="side-title">公司资料</div>
+          <div class="side-note">上传产品规格书后可重新匹配技术偏离。</div>
+          <label>产品资料</label>
+          <input id="productFile" type="file" />
+          <div style="height: 12px"></div>
+          <button id="uploadProduct" class="secondary primary-action">上传产品资料</button>
+        </div>
+        <div>
+          <div class="side-title">审核与导出</div>
+          <div class="side-note">确认风险、审核偏离，生成投标检查交付件。</div>
+          <div class="action-grid">
+          <button id="rematch" class="secondary">重新匹配</button>
+          <button id="loadRecommendations" class="secondary">推荐材料</button>
+          <button id="autoBindMaterials" class="secondary">自动绑定材料</button>
+          <button id="confirmRisks" class="secondary">确认全部风险</button>
+          <button id="approveDeviations" class="secondary">审核全部偏离</button>
+          <button id="exportXlsx" class="secondary">导出偏离表</button>
+          <button id="exportGaps" class="secondary">导出缺失清单</button>
+          <button id="exportScoring" class="secondary">导出评分矩阵</button>
+          <button id="exportOutline" class="secondary">导出投标目录</button>
+          <button id="exportDocx" class="secondary">导出风险报告</button>
+          <button id="exportPdf" class="secondary">导出 PDF 报告</button>
+          <button id="exportPackage" class="secondary">导出检查包</button>
+          <button id="completeProject" class="secondary">完成项目</button>
+          </div>
+        </div>
+        <div class="muted" id="currentProject">尚未创建项目</div>
+      </aside>
+      <section>
+        <div class="toolbar">
+          <div class="row">
+            <div class="metric"><span class="muted">高风险</span><strong id="highCount">0</strong></div>
+            <div class="metric"><span class="muted">技术参数</span><strong id="paramCount">0</strong></div>
+            <div class="metric"><span class="muted">负偏离</span><strong id="negativeCount">0</strong></div>
+            <div class="metric"><span class="muted">待审核</span><strong id="blockerCount">0</strong></div>
+          </div>
+          <button id="refresh" class="secondary">刷新</button>
+        </div>
+        <div class="tabs">
+          <button class="active" data-tab="risks">废标风险</button>
+          <button data-tab="clauses">关键条款</button>
+          <button data-tab="deviations">技术偏离表</button>
+          <button data-tab="gaps">材料缺失</button>
+          <button data-tab="scoring">评分矩阵</button>
+          <button data-tab="outline">投标目录</button>
+          <button data-tab="documents">文档任务</button>
+          <button data-tab="materials">资料库</button>
+          <button data-tab="feedback">审核反馈</button>
+          <button data-tab="rules">规则</button>
+          <button data-tab="system">系统</button>
+        </div>
+        <div id="risksView">
+          <table>
+            <thead><tr><th style="width: 90px">等级</th><th>要求</th><th>建议</th><th style="width: 90px">来源</th><th style="width: 90px">状态</th><th style="width: 130px">审核</th></tr></thead>
+            <tbody id="risksBody"></tbody>
+          </table>
+        </div>
+        <div id="clausesView" hidden>
+          <table>
+            <thead><tr><th style="width: 90px">类型</th><th>条款原文</th><th style="width: 150px">命中词</th><th style="width: 120px">章节</th><th style="width: 90px">页码</th></tr></thead>
+            <tbody id="clausesBody"></tbody>
+          </table>
+        </div>
+        <div id="deviationsView" hidden>
+          <table>
+            <thead><tr><th>招标要求</th><th>我方响应</th><th style="width: 90px">偏离</th><th>证明材料</th><th style="width: 90px">来源</th><th style="width: 130px">审核</th></tr></thead>
+            <tbody id="deviationsBody"></tbody>
+          </table>
+        </div>
+        <div id="gapsView" hidden>
+          <table>
+            <thead><tr><th style="width: 90px">等级</th><th>缺失材料</th><th>建议</th><th>已绑定材料</th><th>推荐资料</th><th style="width: 90px">来源</th><th style="width: 90px">状态</th></tr></thead>
+            <tbody id="gapsBody"></tbody>
+          </table>
+        </div>
+        <div id="scoringView" hidden>
+          <table>
+            <thead><tr><th>评分点</th><th>要求</th><th>响应</th><th>证明材料</th><th style="width: 90px">优先级</th></tr></thead>
+            <tbody id="scoringBody"></tbody>
+          </table>
+        </div>
+        <div id="outlineView" hidden>
+          <table>
+            <thead><tr><th style="width: 90px">章节</th><th>标题</th><th>条目</th></tr></thead>
+            <tbody id="outlineBody"></tbody>
+          </table>
+        </div>
+        <div id="documentsView" hidden>
+          <div class="grid">
+            <div class="panel">
+              <div class="toolbar"><strong>项目文档</strong><span class="pill" id="documentsTotal">0</span></div>
+              <table>
+                <thead><tr><th>文件</th><th style="width: 90px">类型</th><th style="width: 90px">状态</th><th style="width: 70px">页数</th><th style="width: 90px">操作</th></tr></thead>
+                <tbody id="documentsBody"></tbody>
+              </table>
+            </div>
+            <div class="panel">
+              <div class="toolbar"><strong>处理任务</strong><span class="pill" id="tasksTotal">0</span></div>
+              <table>
+                <thead><tr><th>任务</th><th style="width: 90px">状态</th><th style="width: 80px">进度</th><th>当前步骤</th></tr></thead>
+                <tbody id="tasksBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div id="materialsView" hidden>
+          <table>
+            <thead><tr><th>资料</th><th style="width: 100px">类型</th><th>标签</th><th style="width: 80px">页数</th></tr></thead>
+            <tbody id="materialsBody"></tbody>
+          </table>
+        </div>
+        <div id="feedbackView" hidden>
+          <table>
+            <thead><tr><th style="width: 100px">对象</th><th style="width: 110px">动作</th><th>备注</th><th style="width: 180px">时间</th></tr></thead>
+            <tbody id="feedbackBody"></tbody>
+          </table>
+        </div>
+        <div id="rulesView" hidden>
+          <div class="toolbar">
+            <strong>废标风险规则</strong>
+            <button id="saveRules" class="secondary">保存规则</button>
+          </div>
+          <textarea id="rulesEditor" spellcheck="false"></textarea>
+        </div>
+        <div id="systemView" hidden>
+          <div class="grid">
+            <div class="panel">
+              <div class="toolbar"><strong>运行指标</strong><button id="refreshSystem" class="secondary">刷新</button></div>
+              <table>
+                <tbody id="metricsBody"></tbody>
+              </table>
+            </div>
+            <div class="panel">
+              <div class="toolbar"><strong>集成状态</strong><span class="pill" id="storageMode">local</span></div>
+              <table>
+                <tbody id="integrationsBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel" style="margin-top: 14px">
+            <div class="toolbar"><strong>审计日志</strong><span class="pill">最近 50 条</span></div>
+            <table>
+              <thead><tr><th style="width: 170px">时间</th><th style="width: 90px">状态</th><th>动作</th><th>项目</th><th>调用方</th></tr></thead>
+              <tbody id="activityBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script>
+      let projectId = "";
+      let companyId = "comp_demo";
+      let lastRisks = [];
+      let lastDeviations = [];
+      let lastRecommendations = new Map();
+      const $ = (id) => document.getElementById(id);
+      const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+      const api = async (path, options = {}) => {
+        const res = await fetch(path, options);
+        const json = await res.json();
+        if (!res.ok || json.code !== 0) throw new Error(json.message || "请求失败");
+        return json.data;
+      };
+      const refresh = async () => {
+        if (!projectId) return;
+        companyId = $("companyId").value.trim() || companyId;
+        const project = await api(`/api/v1/projects/${projectId}`);
+        $("highCount").textContent = project.risk_count.high;
+        $("paramCount").textContent = project.tech_param_count;
+        $("negativeCount").textContent = project.deviation_count.negative || 0;
+        const summary = await api(`/api/v1/projects/${projectId}/review-summary`);
+        $("blockerCount").textContent = summary.blocker_count;
+        const risks = await api(`/api/v1/projects/${projectId}/risks?page_size=100`);
+        lastRisks = risks.items;
+        $("risksBody").innerHTML = risks.items.map((r) => `<tr><td class="${esc(r.severity)}">${esc(r.severity)}</td><td>${esc(r.requirement)}</td><td>${esc(r.suggestion)}</td><td>${esc(r.source_page || "")}</td><td>${esc(r.status)}</td><td><div class="row-actions"><button class="secondary" data-risk="${esc(r.id)}" data-risk-status="confirmed">确认</button><button class="secondary" data-risk="${esc(r.id)}" data-risk-status="dismissed">忽略</button></div></td></tr>`).join("");
+        bindRiskActions();
+        const clauses = await api(`/api/v1/projects/${projectId}/clauses`);
+        $("clausesBody").innerHTML = clauses.items.map((c) => `<tr><td>${esc(clauseTypeLabel(c.clause_type))}</td><td>${esc(c.clause_text)}</td><td>${esc((c.keywords || []).join(", "))}</td><td>${esc(c.source_section || c.file_name || "")}</td><td>${esc(c.source_page || "")}</td></tr>`).join("");
+        const deviations = await api(`/api/v1/projects/${projectId}/deviations?page_size=100`);
+        lastDeviations = deviations.items;
+        $("deviationsBody").innerHTML = deviations.items.map((d) => `<tr><td>${esc(d.item)} - ${esc(d.parameter)}: ${esc(d.required_value)}</td><td>${esc(d.response_text)}</td><td class="${esc(d.deviation_type)}">${esc(d.deviation_type)}</td><td>${esc(d.evidence || "")}</td><td>${esc(d.source_page || "")}</td><td><div class="row-actions"><button class="secondary" data-deviation="${esc(d.id)}" data-deviation-status="approved">通过</button><button class="secondary" data-deviation="${esc(d.id)}" data-deviation-status="modified">待修改</button></div></td></tr>`).join("");
+        bindDeviationActions();
+        await loadMaterialRecommendations();
+        const gaps = await api(`/api/v1/projects/${projectId}/material-gaps`);
+        $("gapsBody").innerHTML = gaps.items.map((g) => `<tr><td class="${esc(g.severity)}">${esc(g.severity)}</td><td>${esc(g.material_requirement)}</td><td>${esc(g.suggestion)}</td><td>${formatBoundMaterials(g.bound_materials)}</td><td>${formatRecommendations(g.risk_id)}</td><td>${esc(g.source_page || "")}</td><td>${esc(g.status)}</td></tr>`).join("");
+        const scoring = await api(`/api/v1/projects/${projectId}/scoring-matrix`);
+        $("scoringBody").innerHTML = scoring.items.map((s) => `<tr><td>${esc(s.score_point)}</td><td>${esc(s.requirement)}</td><td>${esc(s.response)}</td><td>${esc(s.evidence || "")}</td><td class="${esc(s.priority)}">${esc(s.priority)}</td></tr>`).join("");
+        const outline = await api(`/api/v1/projects/${projectId}/bid-outline`);
+        $("outlineBody").innerHTML = outline.items.map((section) => `<tr><td>${esc(section.code)}</td><td>${esc(section.title)}</td><td>${section.items.map((i) => `${esc(i.title)} · ${esc(i.status)}`).join("<br>")}</td></tr>`).join("");
+        const documents = await api(`/api/v1/projects/${projectId}/documents`);
+        $("documentsTotal").textContent = documents.total;
+        $("documentsBody").innerHTML = documents.items.map((d) => `<tr><td><a href="/api/v1/projects/${projectId}/documents/${d.id}/download">${esc(d.file_name)}</a></td><td>${esc(d.file_type)}</td><td>${esc(d.parse_status)}</td><td>${esc(d.page_count)}</td><td><button class="secondary" data-reparse="${esc(d.id)}">重跑</button></td></tr>`).join("");
+        document.querySelectorAll("[data-reparse]").forEach((button) => button.onclick = async () => {
+          const data = await api(`/api/v1/projects/${projectId}/documents/${button.dataset.reparse}/reparse`, { method: "POST" });
+          watchTask(data.parse_task_id);
+        });
+        const tasks = await api(`/api/v1/projects/${projectId}/tasks`);
+        $("tasksTotal").textContent = tasks.total;
+        $("tasksBody").innerHTML = tasks.items.map((t) => `<tr><td>${esc(t.task_type)}</td><td>${esc(t.status)}</td><td>${esc(t.progress)}%</td><td>${esc(t.current_step)}</td></tr>`).join("");
+        const materials = await api(`/api/v1/companies/${companyId}/materials?page_size=100`);
+        $("materialsBody").innerHTML = materials.items.map((m) => `<tr><td><a href="/api/v1/companies/${companyId}/materials/${m.id}/download">${esc(m.name || m.file_name)}</a></td><td>${esc(m.material_type)}</td><td>${esc((m.tags || []).join(", "))}</td><td>${esc(m.page_count)}</td></tr>`).join("");
+        const feedback = await api(`/api/v1/projects/${projectId}/feedback`);
+        $("feedbackBody").innerHTML = feedback.items.map((f) => `<tr><td>${esc(f.target_type)}</td><td>${esc(f.action)}</td><td>${esc(f.reviewer_note || "")}</td><td>${esc(f.created_at)}</td></tr>`).join("");
+      };
+      $("createProject").onclick = async () => {
+        companyId = $("companyId").value.trim();
+        const data = await api("/api/v1/projects", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: $("projectName").value, tender_name: $("tenderName").value, company_id: companyId })
+        });
+        projectId = data.project_id;
+        $("currentProject").textContent = `当前项目：${projectId}`;
+        await loadProjects();
+        await refresh();
+      };
+      $("uploadTender").onclick = async () => {
+        if (!projectId) await $("createProject").onclick();
+        const file = $("tenderFile").files[0];
+        if (!file) return alert("请选择招标文件");
+        const form = new FormData();
+        form.append("doc_type", "tender");
+        form.append("file", file);
+        const data = await api(`/api/v1/projects/${projectId}/documents`, { method: "POST", body: form });
+        watchTask(data.parse_task_id);
+      };
+      $("uploadProduct").onclick = async () => {
+        const file = $("productFile").files[0];
+        if (!file) return alert("请选择产品资料");
+        const form = new FormData();
+        form.append("material_type", "product");
+        form.append("name", file.name);
+        form.append("file", file);
+        await api(`/api/v1/companies/${companyId}/materials`, { method: "POST", body: form });
+        await refresh();
+      };
+      $("rematch").onclick = async () => {
+        if (!projectId) return;
+        await api(`/api/v1/projects/${projectId}/deviations/rematch`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ product_ids: [] }) });
+        await refresh();
+      };
+      $("loadRecommendations").onclick = async () => {
+        if (!projectId) return;
+        await loadMaterialRecommendations();
+        await refresh();
+      };
+      $("autoBindMaterials").onclick = async () => {
+        if (!projectId) return;
+        await api(`/api/v1/projects/${projectId}/material-recommendations/auto-bind`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit_per_risk: 3, min_score: 0.1 }) });
+        await loadMaterialRecommendations();
+        await refresh();
+      };
+      $("confirmRisks").onclick = async () => {
+        if (!projectId) return;
+        const risk_ids = lastRisks.map((item) => item.id);
+        if (!risk_ids.length) return;
+        await api(`/api/v1/projects/${projectId}/risks/batch-confirm`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ risk_ids, status: "confirmed" }) });
+        await refresh();
+      };
+      $("approveDeviations").onclick = async () => {
+        if (!projectId) return;
+        const deviation_ids = lastDeviations.map((item) => item.id);
+        if (!deviation_ids.length) return;
+        await api(`/api/v1/projects/${projectId}/deviations/batch-confirm`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviation_ids, reviewer_status: "approved" }) });
+        await refresh();
+      };
+      const createExport = async (payload) => {
+        if (!projectId) return;
+        const data = await api(`/api/v1/projects/${projectId}/exports`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        location.href = `/api/v1/exports/${data.export_id}/download`;
+      };
+      $("exportXlsx").onclick = () => createExport({ export_type: "deviation_table", format: "xlsx", options: { include_confidence: true } });
+      $("exportGaps").onclick = () => createExport({ export_type: "material_gap_list", format: "xlsx" });
+      $("exportScoring").onclick = () => createExport({ export_type: "scoring_matrix", format: "xlsx" });
+      $("exportOutline").onclick = () => createExport({ export_type: "bid_outline", format: "docx" });
+      $("exportDocx").onclick = () => createExport({ export_type: "risk_report", format: "docx" });
+      $("exportPdf").onclick = () => createExport({ export_type: "risk_report", format: "pdf" });
+      $("exportPackage").onclick = () => createExport({ export_type: "submission_package", format: "zip" });
+      $("completeProject").onclick = async () => {
+        if (!projectId) return;
+        try {
+          await api(`/api/v1/projects/${projectId}/complete`, { method: "POST" });
+          $("currentProject").textContent = `当前项目：${projectId} · completed`;
+          await refresh();
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+      $("refresh").onclick = refresh;
+      $("saveRules").onclick = async () => {
+        const payload = JSON.parse($("rulesEditor").value);
+        await api("/api/v1/rules/risk", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        await loadRules();
+      };
+      $("refreshSystem").onclick = refreshSystem;
+      document.querySelectorAll(".tabs button").forEach((button) => button.onclick = () => {
+        document.querySelectorAll(".tabs button").forEach((x) => x.classList.remove("active"));
+        button.classList.add("active");
+        ["risks", "clauses", "deviations", "gaps", "scoring", "outline", "documents", "materials", "feedback", "rules", "system"].forEach((tab) => {
+          $(`${tab}View`).hidden = button.dataset.tab !== tab;
+        });
+        if (button.dataset.tab === "rules") loadRules();
+        if (button.dataset.tab === "system") refreshSystem();
+      });
+      async function loadRules() {
+        const rules = await api("/api/v1/rules/risk");
+        $("rulesEditor").value = JSON.stringify(rules, null, 2);
+      }
+      async function loadProjects() {
+        const data = await api("/api/v1/projects?page_size=8");
+        $("projectList").innerHTML = data.items.map((item) => (
+          `<button class="project-picker" data-project="${esc(item.id)}" data-company="${esc(item.company_id)}">
+            <span>${esc(item.name)}</span>
+            <small>${esc(item.tender_name)} · ${esc(item.status)} · 高风险 ${esc(item.risk_count?.high || 0)}</small>
+          </button>`
+        )).join("") || '<span class="muted">暂无项目</span>';
+        document.querySelectorAll(".project-picker").forEach((button) => button.onclick = async () => {
+          projectId = button.dataset.project;
+          companyId = button.dataset.company || companyId;
+          $("companyId").value = companyId;
+          $("currentProject").textContent = `当前项目：${projectId}`;
+          await refresh();
+        });
+      }
+      async function loadMaterialRecommendations() {
+        const data = await api(`/api/v1/projects/${projectId}/material-recommendations?limit_per_risk=3`);
+        lastRecommendations = new Map(data.items.map((item) => [item.risk_id, item.recommendations || []]));
+      }
+      function formatRecommendations(riskId) {
+        const items = lastRecommendations.get(riskId) || [];
+        if (!items.length) return '<span class="muted">暂无推荐</span>';
+        return items.map((item) => `<span class="pill">${esc(item.name || item.file_name || item.material_id)} · ${esc(formatScore(item.score))}</span>`).join(" ");
+      }
+      function formatBoundMaterials(items) {
+        if (!items || !items.length) return '<span class="muted">未绑定</span>';
+        return items.map((item) => `<span class="pill">${esc(item)}</span>`).join(" ");
+      }
+      function formatScore(score) {
+        const value = Number(score);
+        if (Number.isNaN(value)) return score ?? "";
+        return `${Math.round(value * 100)}%`;
+      }
+      function clauseTypeLabel(value) {
+        return { risk: "风险", material: "材料", technical: "技术", business: "商务", other: "其他" }[value] || value;
+      }
+      function bindRiskActions() {
+        document.querySelectorAll("[data-risk]").forEach((button) => button.onclick = async () => {
+          const risk = lastRisks.find((item) => item.id === button.dataset.risk);
+          await api(`/api/v1/projects/${projectId}/risks/${button.dataset.risk}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              status: button.dataset.riskStatus,
+              reviewer_note: button.dataset.riskStatus === "dismissed" ? "人工忽略" : "人工确认",
+              material_ids: risk?.material_ids || []
+            })
+          });
+          await refresh();
+        });
+      }
+      function bindDeviationActions() {
+        document.querySelectorAll("[data-deviation]").forEach((button) => button.onclick = async () => {
+          await api(`/api/v1/projects/${projectId}/deviations/${button.dataset.deviation}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ reviewer_status: button.dataset.deviationStatus })
+          });
+          await refresh();
+        });
+      }
+      async function refreshSystem() {
+        const [capabilities, metrics, integrations, activity] = await Promise.all([
+          api("/api/v1/system/capabilities"),
+          api("/api/v1/system/metrics"),
+          api("/api/v1/system/integrations"),
+          api("/api/v1/system/activity?limit=50"),
+        ]);
+        $("storageMode").textContent = `${capabilities.storage} · ${capabilities.task_queue}`;
+        $("metricsBody").innerHTML = Object.entries(metrics).map(([key, value]) => `<tr><td>${esc(key)}</td><td>${esc(JSON.stringify(value))}</td></tr>`).join("");
+        $("integrationsBody").innerHTML = Object.entries(integrations).map(([key, value]) => `<tr><td>${esc(key)}</td><td>${esc(JSON.stringify(value))}</td></tr>`).join("");
+        $("activityBody").innerHTML = activity.items.map((item) => `<tr><td>${esc(item.created_at)}</td><td>${esc(item.status_code)}</td><td>${esc(item.action)}</td><td>${esc(item.project_id || "")}</td><td>${esc(item.actor)}</td></tr>`).join("");
+      }
+      function watchTask(taskId) {
+        $("taskText").textContent = `任务 ${taskId}`;
+        const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/tasks/${taskId}`);
+        ws.onmessage = async (event) => {
+          const data = JSON.parse(event.data);
+          $("taskProgress").value = data.progress || 0;
+          $("taskText").textContent = `${data.current_step || "processing"} · ${data.progress || 0}%`;
+          if (data.event === "task_completed" || data.event === "task_failed") {
+            ws.close();
+            await refresh();
+          }
+        };
+      }
+      $("loadProjects").onclick = loadProjects;
+      loadProjects();
+    </script>
+  </body>
+</html>
