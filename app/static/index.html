@@ -831,13 +831,14 @@
         $("rulesEditor").value = JSON.stringify(rules, null, 2);
       }
       async function loadProjects() {
-        const data = await api("/api/v1/projects?page_size=8");
-        $("projectList").innerHTML = data.items.map((item) => (
+        const data = await api("/api/v1/projects?page_size=50");
+        const projects = data.items.filter((item) => !isNoisyProject(item)).slice(0, 8);
+        $("projectList").innerHTML = projects.map((item) => (
           `<button class="project-picker" data-project="${esc(item.id)}" data-company="${esc(item.company_id)}">
-            <span>${esc(item.name)}</span>
-            <small>${esc(item.tender_name)} · ${esc(item.status)} · 高风险 ${esc(item.risk_count?.high || 0)}</small>
+            <span>${esc(displayProjectName(item))}</span>
+            <small>${esc(displayTenderName(item))} · ${esc(projectStatusLabel(item.status))} · 高风险 ${esc(item.risk_count?.high || 0)}</small>
           </button>`
-        )).join("") || '<span class="muted">暂无项目</span>';
+        )).join("") || '<span class="muted">暂无可显示项目</span>';
         document.querySelectorAll(".project-picker").forEach((button) => button.onclick = async () => {
           projectId = button.dataset.project;
           companyId = button.dataset.company || companyId;
@@ -845,6 +846,30 @@
           $("currentProject").textContent = `当前项目：${projectId}`;
           await refresh();
         });
+      }
+      function isNoisyProject(item) {
+        return item.company_id === "comp_smoke"
+          || isNoisyText(item.name)
+          || isNoisyText(item.tender_name)
+          || String(item.name || "").startsWith("Smoke");
+      }
+      function isNoisyText(value) {
+        const text = String(value || "").trim();
+        return !text || /�/.test(text) || /\?{2,}/.test(text);
+      }
+      function displayProjectName(item) {
+        return String(item.name || "").trim() || `项目 ${item.id}`;
+      }
+      function displayTenderName(item) {
+        return String(item.tender_name || "").trim() || "未填写招标名称";
+      }
+      function projectStatusLabel(status) {
+        return {
+          created: "已创建",
+          parsing: "解析中",
+          review_pending: "待审核",
+          completed: "已完成"
+        }[status] || status;
       }
       async function loadMaterialRecommendations() {
         const data = await api(`/api/v1/projects/${projectId}/material-recommendations?limit_per_risk=3`);
