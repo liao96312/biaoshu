@@ -1,5 +1,7 @@
 # 标书风控 Agent
 
+[![CI](https://github.com/liao96312/biaoshu/actions/workflows/ci.yml/badge.svg)](https://github.com/liao96312/biaoshu/actions/workflows/ci.yml)
+
 这是按《标书风控 Agent 技术设计文档 v2》落地的投标文件智能复核项目。当前实现已经覆盖项目创建、招标文件解析、废标风险识别、技术参数偏离核对、企业资料检索推荐、人工复核闭环、审计留痕和多格式交付导出。
 
 ## 项目结构
@@ -95,6 +97,8 @@ Compose 会启动 `web`、`api`、`worker`、PostgreSQL、Redis、Qdrant 和 Min
 - `WS /ws/tasks/{task_id}`
 
 ## 验证
+
+GitHub Actions 会在 `main` 分支 push 和 pull request 上自动运行后端单测、API 冒烟、前端依赖审计和前端构建。
 
 ```powershell
 python -m unittest discover -s tests
