@@ -86,6 +86,8 @@ const activity = ref<ActivityLog[]>([]);
 const loading = ref(false);
 const booting = ref(true);
 const notice = ref("准备就绪");
+const healthStatus = ref<"checking" | "ok" | "down">("checking");
+const healthDetail = ref("正在检测后端服务");
 const taskProgress = ref(0);
 const taskText = ref("暂无后台任务");
 const tenderInput = ref<HTMLInputElement | null>(null);
@@ -138,6 +140,14 @@ const stats = computed(() => {
 });
 
 const visibleProjects = computed(() => projects.value.filter((item) => !isNoisyProject(item)).slice(0, 10));
+
+const healthLabel = computed(() => {
+  return {
+    checking: "检测中",
+    ok: "API 在线",
+    down: "API 异常"
+  }[healthStatus.value];
+});
 
 function setNotice(message: string) {
   notice.value = message;
@@ -204,7 +214,7 @@ async function run<T>(message: string, task: () => Promise<T>) {
   } catch (error) {
     const messageText = error instanceof Error ? error.message : String(error);
     setNotice(messageText);
-    throw error;
+    return undefined;
   } finally {
     loading.value = false;
   }
@@ -286,6 +296,7 @@ async function loadProject(projectId: string) {
 }
 
 async function refreshCurrent() {
+  await loadHealth();
   if (!currentProject.value) {
     await loadProjects();
     return;
@@ -450,6 +461,22 @@ async function loadSystem() {
   activity.value = activityData.items;
 }
 
+async function loadHealth() {
+  healthStatus.value = "checking";
+  try {
+    const response = await fetch("/healthz", { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const data = await response.json();
+    healthStatus.value = "ok";
+    healthDetail.value = `后端在线 · ${data.storage_root || "storage"}`;
+  } catch (error) {
+    healthStatus.value = "down";
+    healthDetail.value = error instanceof Error ? error.message : "后端不可用";
+  }
+}
+
 function recommendationTags(riskId: string) {
   return recommendations.value.get(riskId) || [];
 }
@@ -472,13 +499,13 @@ function watchTask(taskId: string) {
 
 async function activateTab(tab: TabKey) {
   activeTab.value = tab;
-  if (tab === "rules") await loadRules();
-  if (tab === "system") await loadSystem();
+  if (tab === "rules") await run("正在加载规则配置", loadRules);
+  if (tab === "system") await run("正在加载系统状态", loadSystem);
 }
 
 onMounted(async () => {
   try {
-    await Promise.all([loadProjects(), loadSystem(), loadRules()]);
+    await Promise.allSettled([loadProjects(), loadSystem(), loadRules(), loadHealth()]);
     const firstProject = visibleProjects.value[0];
     if (firstProject) await loadProject(firstProject.id);
   } finally {
@@ -594,6 +621,10 @@ onMounted(async () => {
           <span class="muted">{{ currentProject?.id || "创建或选择一个项目后开始复核" }}</span>
         </div>
         <div class="top-actions">
+          <span class="health-pill" :class="healthStatus" :title="healthDetail">
+            <Activity :size="14" />
+            {{ healthLabel }}
+          </span>
           <span class="status-pill" :class="{ busy: loading || booting }">{{ notice }}</span>
           <button class="icon-button" title="刷新" :disabled="loading" @click="refreshCurrent">
             <RefreshCw :size="18" />

@@ -232,6 +232,15 @@ def get_company_or_404(company_id: str) -> Company:
     return company
 
 
+def ensure_company(company_id: str) -> Company:
+    company = repository.get_company(company_id)
+    if company is not None:
+        return company
+    company = Company(id=company_id, name=company_id)
+    repository.create_company(company)
+    return company
+
+
 @app.post("/api/v1/companies")
 def create_company(payload: CompanyCreate) -> ApiResponse:
     company = Company(id=repository.new_id("comp"), name=payload.name)
@@ -252,6 +261,7 @@ def get_company(company_id: str) -> ApiResponse:
 
 @app.post("/api/v1/projects")
 def create_project(payload: ProjectCreate) -> ApiResponse:
+    ensure_company(payload.company_id)
     project = Project(id=repository.new_id("proj"), **payload.model_dump())
     repository.create_project(project)
     return ok({"project_id": project.id, "status": project.status, "created_at": project.created_at})

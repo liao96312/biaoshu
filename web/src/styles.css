@@ -260,6 +260,7 @@ h2 {
 .status-pill {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   min-height: 32px;
   max-width: 320px;
   border-radius: 999px;
@@ -276,6 +277,34 @@ h2 {
 .status-pill.busy {
   color: #955a0a;
   background: #fff5dc;
+}
+
+.health-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  border-radius: 999px;
+  padding: 6px 11px;
+  border: 1px solid rgba(48, 68, 75, 0.14);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.health-pill.checking {
+  color: #6a7480;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.health-pill.ok {
+  color: #11645e;
+  background: #ddf4ec;
+}
+
+.health-pill.down {
+  color: #97251f;
+  background: #fee5df;
 }
 
 .icon-button {
