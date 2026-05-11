@@ -470,7 +470,7 @@ async function loadHealth() {
     }
     const data = await response.json();
     healthStatus.value = "ok";
-    healthDetail.value = `后端在线 · ${data.storage_root || "storage"}`;
+    healthDetail.value = `后端在线 · ${data.storage || "storage"}`;
   } catch (error) {
     healthStatus.value = "down";
     healthDetail.value = error instanceof Error ? error.message : "后端不可用";

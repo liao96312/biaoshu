@@ -58,5 +58,7 @@ export async function createExport(projectId: string, payload: { export_type: st
 
 export function taskSocket(taskId: string) {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  return new WebSocket(`${protocol}://${window.location.host}/ws/tasks/${taskId}`);
+  const token = authToken();
+  const query = token ? `?token=${encodeURIComponent(token)}` : "";
+  return new WebSocket(`${protocol}://${window.location.host}/ws/tasks/${taskId}${query}`);
 }

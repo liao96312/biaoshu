@@ -4,6 +4,13 @@ import os
 from dataclasses import dataclass
 
 
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
 @dataclass(frozen=True)
 class Settings:
     storage_root: str = os.getenv("BID_AGENT_STORAGE_ROOT", "storage")
@@ -34,6 +41,7 @@ class Settings:
     embedding_api_key: str = os.getenv("BID_AGENT_EMBEDDING_API_KEY", "")
     embedding_base_url: str = os.getenv("BID_AGENT_EMBEDDING_BASE_URL", "")
     workflow_engine: str = os.getenv("BID_AGENT_WORKFLOW_ENGINE", "deterministic").lower()
+    max_upload_bytes: int = _int_env("BID_AGENT_MAX_UPLOAD_BYTES", 50 * 1024 * 1024)
 
 
 settings = Settings()

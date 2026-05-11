@@ -28,25 +28,25 @@ class LocalObjectStorage:
         self.root.mkdir(parents=True, exist_ok=True)
 
     def put_file(self, source: Path, key: str) -> str:
-        target = self.root / key
+        target = self._target_for_key(key)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
         return str(target)
 
     def delete_file(self, key: str) -> int:
         try:
-            target = (self.root / key).resolve()
-            if not _is_under(target, self.root.resolve()) or not target.is_file():
+            target = self._target_for_key(key)
+            if not target.is_file():
                 return 0
             target.unlink()
             return 1
-        except OSError:
+        except (OSError, ValueError):
             return 0
 
     def delete_prefix(self, prefix: str) -> int:
         try:
-            target = (self.root / prefix).resolve()
-            if not _is_under(target, self.root.resolve()) or not target.exists():
+            target = self._target_for_key(prefix)
+            if not target.exists():
                 return 0
             if target.is_file():
                 target.unlink()
@@ -54,8 +54,14 @@ class LocalObjectStorage:
             count = sum(1 for item in target.rglob("*") if item.is_file())
             shutil.rmtree(target)
             return count
-        except OSError:
+        except (OSError, ValueError):
             return 0
+
+    def _target_for_key(self, key: str) -> Path:
+        target = (self.root / key).resolve()
+        if not _is_under(target, self.root.resolve()):
+            raise ValueError("object key escapes storage root")
+        return target
 
 
 class MinioObjectStorage:

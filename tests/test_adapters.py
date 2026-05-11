@@ -30,6 +30,15 @@ class AdapterTests(unittest.TestCase):
             self.assertEqual(storage.delete_prefix("../outside"), 0)
             self.assertTrue((Path(temp_dir) / "objects" / "projects" / "proj_2" / "c.txt").exists())
 
+    def test_local_object_storage_rejects_traversal_on_put(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "source.txt"
+            source.write_text("hello", encoding="utf-8")
+            storage = LocalObjectStorage(str(Path(temp_dir) / "objects"))
+            with self.assertRaises(ValueError):
+                storage.put_file(source, "../outside.txt")
+            self.assertFalse((Path(temp_dir) / "outside.txt").exists())
+
     def test_in_memory_vector_store_searches_terms(self):
         store = InMemoryVectorStore()
         store.upsert_text("materials", "mat_1", "核心交换机 包转发率 800Mpps", {"page": 3})

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import re
 import shutil
 import time
@@ -61,6 +62,7 @@ from app.task_queue import task_queue
 
 
 app = FastAPI(title="Bid Risk Control Agent", version="0.2.0")
+ALLOWED_UPLOAD_SUFFIXES = {".pdf", ".docx", ".xlsx", ".xlsm", ".txt", ".md", ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 static_dir = Path(__file__).parent / "static"
 if static_dir.exists():
     app.mount("/app", StaticFiles(directory=static_dir, html=True), name="web")
@@ -81,8 +83,8 @@ def index() -> RedirectResponse:
 def healthz() -> dict:
     return {
         "status": "ok",
-        "storage_root": str(repository.storage_root),
-        "state_file": str(repository.state_file),
+        "storage": repository.name,
+        "task_queue": task_queue.name,
     }
 
 
@@ -181,8 +183,8 @@ async def auth_and_rate_headers(request: Request, call_next):
         if token or api_keys:
             authorization = request.headers.get("authorization", "")
             api_key = request.headers.get("x-api-key", "")
-            bearer_ok = token and authorization == f"Bearer {token}"
-            api_key_ok = api_key and api_key in api_keys
+            bearer_ok = bool(token and hmac.compare_digest(authorization, f"Bearer {token}"))
+            api_key_ok = any(hmac.compare_digest(api_key, item) for item in api_keys)
             if not bearer_ok and not api_key_ok:
                 response = error_response(4001, "unauthorized", 401)
                 _record_activity(request, response.status_code)
@@ -344,14 +346,13 @@ async def upload_document(
     project = get_project_or_404(project_id)
     document_id = repository.new_id("doc")
     suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in {".pdf", ".docx", ".xlsx", ".xlsm", ".txt", ".md", ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}:
+    if suffix not in ALLOWED_UPLOAD_SUFFIXES:
         raise HTTPException(status_code=400, detail="unsupported file type")
 
     project_dir = repository.storage_root / "projects" / project_id
     project_dir.mkdir(parents=True, exist_ok=True)
     target = project_dir / f"{document_id}{suffix}"
-    with target.open("wb") as output:
-        shutil.copyfileobj(file.file, output)
+    file_size = _copy_upload_limited(file, target)
     storage_path = object_storage.put_file(target, f"projects/{project_id}/{target.name}")
 
     task_id = repository.new_id("task_parse")
@@ -373,8 +374,8 @@ async def upload_document(
     return ok(
         {
             "document_id": document_id,
-            "file_name": file.filename,
-            "file_size": target.stat().st_size,
+            "file_name": _safe_download_name(file.filename, target.name),
+            "file_size": file_size,
             "page_count": 0,
             "parse_task_id": task_id,
             "status": "parsing",
@@ -386,8 +387,9 @@ async def upload_document(
 def reparse_document(project_id: str, document_id: str, background_tasks: BackgroundTasks) -> ApiResponse:
     project = get_project_or_404(project_id)
     document = repository.get_document(document_id)
-    if document is None or document.project_id != project_id or not Path(document.storage_path).exists():
+    if document is None or document.project_id != project_id:
         raise HTTPException(status_code=404, detail="document not found")
+    _stored_file_or_404(document.storage_path, "document not found")
     task_id = repository.new_id("task_parse")
     task = _new_parse_task(task_id, project_id)
     document.parse_status = TaskStatus.PENDING
@@ -410,9 +412,10 @@ def list_documents(project_id: str) -> ApiResponse:
 def download_document(project_id: str, document_id: str) -> FileResponse:
     get_project_or_404(project_id)
     document = repository.get_document(document_id)
-    if document is None or document.project_id != project_id or not Path(document.storage_path).exists():
+    if document is None or document.project_id != project_id:
         raise HTTPException(status_code=404, detail="document not found")
-    return FileResponse(document.storage_path, filename=document.file_name)
+    path = _stored_file_or_404(document.storage_path, "document not found")
+    return FileResponse(path, filename=_safe_download_name(document.file_name, path.name))
 
 @app.get("/api/v1/tasks/{task_id}")
 def get_task(task_id: str) -> ApiResponse:
@@ -432,7 +435,10 @@ def list_project_tasks(project_id: str) -> ApiResponse:
 @app.websocket("/ws/tasks/{task_id}")
 async def task_websocket(task_id: str, websocket: WebSocket) -> None:
     token = settings.token
-    if token and websocket.query_params.get("token") != token:
+    api_keys = set(settings.api_keys)
+    token_ok = bool(token and hmac.compare_digest(websocket.query_params.get("token", ""), token))
+    api_key_ok = any(hmac.compare_digest(websocket.query_params.get("api_key", ""), item) for item in api_keys)
+    if (token or api_keys) and not token_ok and not api_key_ok:
         await websocket.close(code=1008)
         return
     await task_connections.connect(task_id, websocket)
@@ -751,8 +757,11 @@ def create_export(project_id: str, payload: ExportCreate) -> ApiResponse:
                 archive.write(item, arcname=f"exports/{item.name}")
             for document in repository.list_project_documents(project_id):
                 document_path = Path(document.storage_path)
-                if document_path.exists():
-                    archive.write(document_path, arcname=f"source_documents/{document.file_name}")
+                try:
+                    safe_document_path = _stored_file_or_404(str(document_path), "document not found")
+                except HTTPException:
+                    continue
+                archive.write(safe_document_path, arcname=f"source_documents/{_safe_download_name(document.file_name, safe_document_path.name)}")
         _delete_tree_if_safe(part_dir)
     else:
         raise HTTPException(status_code=400, detail="unsupported export type or format")
@@ -782,8 +791,9 @@ def create_export(project_id: str, payload: ExportCreate) -> ApiResponse:
 @app.get("/api/v1/exports/{export_id}/download")
 def download_export(export_id: str) -> FileResponse:
     record = repository.get_export(export_id)
-    if record is None or not Path(record.file_path).exists():
+    if record is None:
         raise HTTPException(status_code=404, detail="export not found")
+    path = _stored_file_or_404(record.file_path, "export not found")
     if record.format == "xlsx":
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         filename = f"deviation_table_{record.project_id}.xlsx"
@@ -796,7 +806,7 @@ def download_export(export_id: str) -> FileResponse:
     else:
         media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         filename = f"{record.export_type}_{record.project_id}.docx"
-    return FileResponse(record.file_path, filename=filename, media_type=media_type)
+    return FileResponse(path, filename=_safe_download_name(filename, path.name), media_type=media_type)
 
 
 @app.post("/api/v1/companies/{company_id}/materials")
@@ -807,15 +817,15 @@ async def upload_material(
     name: str | None = Form(None),
     tags: str = Form(""),
 ) -> ApiResponse:
+    ensure_company(company_id)
     material_id = repository.new_id("mat")
     suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in {".pdf", ".docx", ".xlsx", ".xlsm", ".txt", ".md", ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}:
+    if suffix not in ALLOWED_UPLOAD_SUFFIXES:
         raise HTTPException(status_code=400, detail="unsupported file type")
     target_dir = repository.storage_root / "companies" / company_id
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / f"{material_id}{suffix}"
-    with target.open("wb") as output:
-        shutil.copyfileobj(file.file, output)
+    _copy_upload_limited(file, target)
     object_storage_uri = object_storage.put_file(target, f"companies/{company_id}/{target.name}")
 
     parsed_text = ""
@@ -830,7 +840,7 @@ async def upload_material(
     material = Material(
         id=material_id,
         company_id=company_id,
-        file_name=file.filename or target.name,
+        file_name=_safe_download_name(file.filename, target.name),
         material_type=material_type,
         storage_path=str(target),
         object_storage_uri=object_storage_uri,
@@ -886,9 +896,10 @@ def delete_material(company_id: str, material_id: str, delete_file: bool = True)
 @app.get("/api/v1/companies/{company_id}/materials/{material_id}/download")
 def download_material(company_id: str, material_id: str) -> FileResponse:
     material = repository.get_material(material_id)
-    if material is None or material.company_id != company_id or not Path(material.storage_path).exists():
+    if material is None or material.company_id != company_id:
         raise HTTPException(status_code=404, detail="material not found")
-    return FileResponse(material.storage_path, filename=material.file_name)
+    path = _stored_file_or_404(material.storage_path, "material not found")
+    return FileResponse(path, filename=_safe_download_name(material.file_name, path.name))
 
 
 def _record_activity(request: Request, status_code: int) -> None:
@@ -960,6 +971,39 @@ def _delete_tree_if_safe(path: Path) -> int:
 def _is_under_storage(path: Path) -> bool:
     storage_root = repository.storage_root.resolve()
     return path == storage_root or storage_root in path.parents
+
+
+def _stored_file_or_404(path_value: str, detail: str) -> Path:
+    path = Path(path_value).resolve()
+    if not _is_under_storage(path) or not path.is_file():
+        raise HTTPException(status_code=404, detail=detail)
+    return path
+
+
+def _safe_download_name(filename: str | None, fallback: str) -> str:
+    name = Path(filename or fallback).name
+    name = re.sub(r"[\r\n\t]+", " ", name).strip()
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name)
+    return name or fallback
+
+
+def _copy_upload_limited(file: UploadFile, target: Path) -> int:
+    max_bytes = settings.max_upload_bytes
+    written = 0
+    try:
+        with target.open("wb") as output:
+            while True:
+                chunk = file.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > max_bytes:
+                    raise HTTPException(status_code=413, detail=f"file too large; max {max_bytes} bytes")
+                output.write(chunk)
+        return written
+    except Exception:
+        _delete_file_if_safe(target)
+        raise
 
 
 def _new_parse_task(task_id: str, project_id: str) -> Task:

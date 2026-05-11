@@ -45,6 +45,14 @@ docker compose up --build
 
 Compose 会启动 `web`、`api`、`worker`、PostgreSQL、Redis、Qdrant 和 MinIO。默认访问 `http://127.0.0.1:5173/`，前端容器通过 Nginx 将 `/api/` 和 `/ws/` 代理到后端服务。
 
+## 安全配置
+
+- 认证：本地默认开放；设置 `BID_AGENT_TOKEN` 后 API 需要 `Authorization: Bearer <token>`，设置 `BID_AGENT_API_KEYS` 后支持 `X-API-Key`。
+- 上传限制：`BID_AGENT_MAX_UPLOAD_BYTES` 默认 52428800，即单文件 50MB。超过限制的上传会被拒绝并清理临时文件。
+- 文件边界：上传只允许 PDF、Word、Excel、文本、Markdown 和常见图片格式；下载和删除会校验文件仍在 `storage/` 下，避免路径穿越。
+- 健康检查：`/healthz` 只返回服务状态、存储后端和任务队列类型，不暴露本机绝对路径。
+- 前端代理：生产容器由 Nginx 代理 `/api/`、`/ws/` 和 `/healthz` 到后端，避免浏览器跨域配置扩大暴露面。
+
 ## 核心能力
 
 - 项目管理：创建投标项目、查看最近项目、项目归档门禁。

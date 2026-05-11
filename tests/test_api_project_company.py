@@ -28,6 +28,18 @@ class ApiProjectCompanyTests(unittest.TestCase):
             finally:
                 main.repository = original_repository
 
+    def test_health_response_does_not_expose_local_paths(self):
+        payload = main.healthz()
+        self.assertEqual(payload["status"], "ok")
+        self.assertIn("storage", payload)
+        self.assertIn("task_queue", payload)
+        self.assertNotIn("storage_root", payload)
+        self.assertNotIn("state_file", payload)
+
+    def test_safe_download_name_strips_path_and_control_characters(self):
+        self.assertEqual(main._safe_download_name("../evil\r\n.txt", "fallback.txt"), "evil .txt")
+        self.assertEqual(main._safe_download_name("", "fallback.txt"), "fallback.txt")
+
 
 if __name__ == "__main__":
     unittest.main()
