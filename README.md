@@ -47,6 +47,16 @@ docker compose up --build
 
 Compose 会启动 `web`、`api`、`worker`、PostgreSQL、Redis、Qdrant 和 MinIO。默认访问 `http://127.0.0.1:5173/`，前端容器通过 Nginx 将 `/api/` 和 `/ws/` 代理到后端服务。
 
+Compose 默认使用 `BID_AGENT_STORAGE_BACKEND=postgres_mirror`：API 和 worker 仍保留本地 JSON 状态作为演示兜底，同时把业务数据镜像写入 PostgreSQL；PostgreSQL 首次启动会自动执行 `db/schema.sql`。各服务带健康检查，`web` 会等待 `api` 健康后再对外服务，`api` 和 `worker` 会等待 PostgreSQL 与 Redis 可用。
+
+常用部署检查：
+
+```powershell
+docker compose config
+docker compose ps
+docker compose logs -f api
+```
+
 ## 安全配置
 
 - 认证：本地默认开放；设置 `BID_AGENT_TOKEN` 后 API 需要 `Authorization: Bearer <token>`，设置 `BID_AGENT_API_KEYS` 后支持 `X-API-Key`。

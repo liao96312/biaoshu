@@ -5,61 +5,118 @@ services:
     ports:
       - "5173:80"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
 
   api:
     build: .
     ports:
       - "8000:8000"
     environment:
-      BID_AGENT_TASK_QUEUE: celery
+      BID_AGENT_TASK_QUEUE: ${BID_AGENT_TASK_QUEUE:-celery}
+      BID_AGENT_STORAGE_BACKEND: ${BID_AGENT_STORAGE_BACKEND:-postgres_mirror}
+      BID_AGENT_MAX_UPLOAD_BYTES: ${BID_AGENT_MAX_UPLOAD_BYTES:-52428800}
+      BID_AGENT_OBJECT_STORAGE: ${BID_AGENT_OBJECT_STORAGE:-local}
+      BID_AGENT_VECTOR_BACKEND: ${BID_AGENT_VECTOR_BACKEND:-memory}
+      BID_AGENT_EMBEDDING_PROVIDER: ${BID_AGENT_EMBEDDING_PROVIDER:-hash}
+      BID_AGENT_WORKFLOW_ENGINE: ${BID_AGENT_WORKFLOW_ENGINE:-deterministic}
+      BID_AGENT_LLM_PROVIDER: ${BID_AGENT_LLM_PROVIDER:-disabled}
+      BID_AGENT_LLM_MODEL: ${BID_AGENT_LLM_MODEL:-}
+      BID_AGENT_LLM_API_KEY: ${BID_AGENT_LLM_API_KEY:-}
+      BID_AGENT_LLM_BASE_URL: ${BID_AGENT_LLM_BASE_URL:-}
+      BID_AGENT_OCR_PROVIDER: ${BID_AGENT_OCR_PROVIDER:-disabled}
       BID_AGENT_TOKEN: ${BID_AGENT_TOKEN:-}
       BID_AGENT_API_KEYS: ${BID_AGENT_API_KEYS:-}
-      DATABASE_URL: postgresql://bid_agent:bid_agent@postgres:5432/bid_agent
+      DATABASE_URL: postgresql://bid_agent:${POSTGRES_PASSWORD:-bid_agent}@postgres:5432/bid_agent
       REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION_PREFIX: ${QDRANT_COLLECTION_PREFIX:-bid_agent}
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-bid-agent}
     volumes:
       - ./storage:/app/storage
     depends_on:
-      - postgres
-      - redis
-      - qdrant
-      - minio
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      minio:
+        condition: service_started
+    restart: unless-stopped
 
   worker:
     build: .
     command: celery -A app.worker.celery_app worker --loglevel=INFO
     environment:
-      BID_AGENT_TASK_QUEUE: celery
-      DATABASE_URL: postgresql://bid_agent:bid_agent@postgres:5432/bid_agent
+      BID_AGENT_TASK_QUEUE: ${BID_AGENT_TASK_QUEUE:-celery}
+      BID_AGENT_STORAGE_BACKEND: ${BID_AGENT_STORAGE_BACKEND:-postgres_mirror}
+      BID_AGENT_MAX_UPLOAD_BYTES: ${BID_AGENT_MAX_UPLOAD_BYTES:-52428800}
+      BID_AGENT_OBJECT_STORAGE: ${BID_AGENT_OBJECT_STORAGE:-local}
+      BID_AGENT_VECTOR_BACKEND: ${BID_AGENT_VECTOR_BACKEND:-memory}
+      BID_AGENT_EMBEDDING_PROVIDER: ${BID_AGENT_EMBEDDING_PROVIDER:-hash}
+      BID_AGENT_WORKFLOW_ENGINE: ${BID_AGENT_WORKFLOW_ENGINE:-deterministic}
+      BID_AGENT_LLM_PROVIDER: ${BID_AGENT_LLM_PROVIDER:-disabled}
+      BID_AGENT_LLM_MODEL: ${BID_AGENT_LLM_MODEL:-}
+      BID_AGENT_LLM_API_KEY: ${BID_AGENT_LLM_API_KEY:-}
+      BID_AGENT_LLM_BASE_URL: ${BID_AGENT_LLM_BASE_URL:-}
+      BID_AGENT_OCR_PROVIDER: ${BID_AGENT_OCR_PROVIDER:-disabled}
+      DATABASE_URL: postgresql://bid_agent:${POSTGRES_PASSWORD:-bid_agent}@postgres:5432/bid_agent
       REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION_PREFIX: ${QDRANT_COLLECTION_PREFIX:-bid_agent}
       MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-bid-agent}
     volumes:
       - ./storage:/app/storage
     depends_on:
-      - redis
-      - postgres
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
 
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: bid_agent
       POSTGRES_USER: bid_agent
-      POSTGRES_PASSWORD: bid_agent
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bid_agent}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bid_agent -d bid_agent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
   qdrant:
     image: qdrant/qdrant:v1.12.4
     volumes:
       - qdrant_data:/qdrant/storage
+    restart: unless-stopped
 
   minio:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
@@ -72,6 +129,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     volumes:
       - minio_data:/data
+    restart: unless-stopped
 
 volumes:
   postgres_data:
