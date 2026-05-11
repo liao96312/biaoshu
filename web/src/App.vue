@@ -18,7 +18,7 @@ import {
   WandSparkles,
   XCircle
 } from "lucide-vue-next";
-import { api, createExport, taskSocket, uploadMaterial, uploadTender } from "./api";
+import { api, createExport, setCompanyTenant, taskSocket, uploadMaterial, uploadTender } from "./api";
 import type {
   ActivityLog,
   ClauseItem,
@@ -227,18 +227,21 @@ async function loadProjects() {
 
 async function selectProject(project: Project) {
   form.company_id = project.company_id;
+  setCompanyTenant(project.company_id);
   await loadProject(project.id);
 }
 
 async function createProject() {
   await run("正在创建项目", async () => {
+    const companyId = form.company_id.trim() || "comp_demo";
+    setCompanyTenant(companyId);
     const data = await api<{ project_id: string }>("/api/v1/projects", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: form.name.trim() || "智能标书风控项目",
         tender_name: form.tender_name.trim() || "招标文件复核",
-        company_id: form.company_id.trim() || "comp_demo"
+        company_id: companyId
       })
     });
     await loadProjects();
@@ -251,6 +254,7 @@ async function loadProject(projectId: string) {
     const project = await api<Project>(`/api/v1/projects/${projectId}`);
     currentProject.value = project;
     form.company_id = project.company_id;
+    setCompanyTenant(project.company_id);
 
     const [
       summaryData,

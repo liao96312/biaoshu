@@ -70,6 +70,7 @@ app = FastAPI(title="Bid Risk Control Agent", version="0.2.0")
 ALLOWED_UPLOAD_SUFFIXES = {".pdf", ".docx", ".xlsx", ".xlsm", ".txt", ".md", ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 request_id_context: contextvars.ContextVar[str | None] = contextvars.ContextVar("request_id", default=None)
+tenant_context: contextvars.ContextVar[str | None] = contextvars.ContextVar("tenant_id", default=None)
 logger = logging.getLogger("bid_agent")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -195,6 +196,7 @@ async def auth_and_rate_headers(request: Request, call_next):
     started = time.perf_counter()
     request_id = _request_id_from_headers(request)
     token_ctx = request_id_context.set(request_id)
+    tenant_ctx = tenant_context.set(_tenant_from_headers(request))
     rate_key = request.headers.get("x-api-key") or (request.client.host if request.client else "anonymous")
     rate = rate_limiter.check(rate_key)
     try:
@@ -218,6 +220,7 @@ async def auth_and_rate_headers(request: Request, call_next):
         _record_activity(request, response.status_code)
         return _finalize_response(request, response, rate, started, request_id)
     finally:
+        tenant_context.reset(tenant_ctx)
         request_id_context.reset(token_ctx)
 
 
@@ -248,10 +251,12 @@ def get_project_or_404(project_id: str) -> Project:
     project = repository.get_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
+    _ensure_project_visible(project)
     return project
 
 
 def get_company_or_404(company_id: str) -> Company:
+    _ensure_company_visible(company_id)
     company = repository.get_company(company_id)
     if company is None:
         raise HTTPException(status_code=404, detail="company not found")
@@ -259,6 +264,7 @@ def get_company_or_404(company_id: str) -> Company:
 
 
 def ensure_company(company_id: str) -> Company:
+    _ensure_company_visible(company_id)
     company = repository.get_company(company_id)
     if company is not None:
         return company
@@ -269,13 +275,19 @@ def ensure_company(company_id: str) -> Company:
 
 @app.post("/api/v1/companies")
 def create_company(payload: CompanyCreate) -> ApiResponse:
-    company = Company(id=repository.new_id("comp"), name=payload.name)
+    tenant_id = tenant_context.get()
+    company = Company(id=tenant_id or repository.new_id("comp"), name=payload.name)
     repository.create_company(company)
     return ok(company.model_dump())
 
 
 @app.get("/api/v1/companies")
 def list_companies(page: int = 1, page_size: int = 20) -> ApiResponse:
+    tenant_id = tenant_context.get()
+    if tenant_id:
+        company = repository.get_company(tenant_id)
+        items = [company.model_dump()] if company else []
+        return ok({"total": len(items), "items": items})
     company_page = repository.list_companies(page=page, page_size=page_size)
     return ok({"total": company_page.total, "items": [item.model_dump() for item in company_page.items]})
 
@@ -287,6 +299,7 @@ def get_company(company_id: str) -> ApiResponse:
 
 @app.post("/api/v1/projects")
 def create_project(payload: ProjectCreate) -> ApiResponse:
+    _ensure_company_visible(payload.company_id)
     ensure_company(payload.company_id)
     project = Project(id=repository.new_id("proj"), **payload.model_dump())
     repository.create_project(project)
@@ -295,7 +308,11 @@ def create_project(payload: ProjectCreate) -> ApiResponse:
 
 @app.get("/api/v1/projects")
 def list_projects(page: int = 1, page_size: int = 20, status: ProjectStatus | None = None) -> ApiResponse:
-    project_page = repository.list_projects(page=page, page_size=page_size, status=status.value if status else None)
+    tenant_id = tenant_context.get()
+    if tenant_id:
+        project_page = _list_tenant_projects(tenant_id, page=page, page_size=page_size, status=status.value if status else None)
+    else:
+        project_page = repository.list_projects(page=page, page_size=page_size, status=status.value if status else None)
     data = []
     for project in project_page.items:
         row = project.model_dump()
@@ -817,6 +834,7 @@ def download_export(export_id: str) -> FileResponse:
     record = repository.get_export(export_id)
     if record is None:
         raise HTTPException(status_code=404, detail="export not found")
+    get_project_or_404(record.project_id)
     path = _stored_file_or_404(record.file_path, "export not found")
     if record.format == "xlsx":
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -841,6 +859,7 @@ async def upload_material(
     name: str | None = Form(None),
     tags: str = Form(""),
 ) -> ApiResponse:
+    _ensure_company_visible(company_id)
     ensure_company(company_id)
     material_id = repository.new_id("mat")
     suffix = Path(file.filename or "").suffix.lower()
@@ -880,12 +899,14 @@ async def upload_material(
 
 @app.get("/api/v1/companies/{company_id}/materials")
 def list_materials(company_id: str, material_type: str | None = None, page: int = 1, page_size: int = 20) -> ApiResponse:
+    _ensure_company_visible(company_id)
     material_page = repository.list_materials(company_id, material_type=material_type, page=page, page_size=page_size)
     return ok({"total": material_page.total, "items": [item.model_dump() for item in material_page.items]})
 
 
 @app.get("/api/v1/companies/{company_id}/materials/search")
 def search_materials(company_id: str, q: str, limit: int = 5) -> ApiResponse:
+    _ensure_company_visible(company_id)
     hits = knowledge_base.search(company_id, q, limit=limit)
     return ok(
         {
@@ -905,6 +926,7 @@ def search_materials(company_id: str, q: str, limit: int = 5) -> ApiResponse:
 
 @app.delete("/api/v1/companies/{company_id}/materials/{material_id}")
 def delete_material(company_id: str, material_id: str, delete_file: bool = True) -> ApiResponse:
+    _ensure_company_visible(company_id)
     material = repository.get_material(material_id)
     if material is None or material.company_id != company_id:
         raise HTTPException(status_code=404, detail="material not found")
@@ -919,6 +941,7 @@ def delete_material(company_id: str, material_id: str, delete_file: bool = True)
 
 @app.get("/api/v1/companies/{company_id}/materials/{material_id}/download")
 def download_material(company_id: str, material_id: str) -> FileResponse:
+    _ensure_company_visible(company_id)
     material = repository.get_material(material_id)
     if material is None or material.company_id != company_id:
         raise HTTPException(status_code=404, detail="material not found")
@@ -964,6 +987,35 @@ def _request_id_from_headers(request: Request) -> str:
     if header_value and REQUEST_ID_PATTERN.fullmatch(header_value):
         return header_value
     return f"req_{uuid4().hex}"
+
+
+def _tenant_from_headers(request: Request) -> str | None:
+    tenant_id = request.headers.get("x-company-id", "").strip()
+    if not tenant_id:
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", tenant_id):
+        raise HTTPException(status_code=400, detail="invalid company tenant header")
+    return tenant_id
+
+
+def _ensure_company_visible(company_id: str) -> None:
+    tenant_id = tenant_context.get()
+    if tenant_id and company_id != tenant_id:
+        raise HTTPException(status_code=404, detail="company not found")
+
+
+def _ensure_project_visible(project: Project) -> None:
+    tenant_id = tenant_context.get()
+    if tenant_id and project.company_id != tenant_id:
+        raise HTTPException(status_code=404, detail="project not found")
+
+
+def _list_tenant_projects(tenant_id: str, page: int = 1, page_size: int = 20, status: str | None = None):
+    all_projects = repository.list_projects(page=1, page_size=10000, status=status)
+    items = [project for project in all_projects.items if project.company_id == tenant_id]
+    total = len(items)
+    start = max(page - 1, 0) * page_size
+    return type(all_projects)(total=total, items=items[start : start + page_size])
 
 
 def _finalize_response(request: Request, response, rate, started: float, request_id: str):

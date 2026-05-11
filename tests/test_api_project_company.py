@@ -5,6 +5,7 @@ from unittest.mock import Mock
 
 import app.main as main
 from app.models import ProjectCreate
+from app.models import Project
 from app.repositories.runtime import JsonStateRepository
 from app.store import InMemoryStore
 
@@ -55,6 +56,37 @@ class ApiProjectCompanyTests(unittest.TestCase):
         request = Mock()
         request.headers = {"x-request-id": "bad\ntrace"}
         self.assertTrue(main._request_id_from_headers(request).startswith("req_"))
+
+    def test_tenant_header_hides_other_company_project(self):
+        original_repository = main.repository
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = InMemoryStore(storage_root=temp_dir, state_file=str(Path(temp_dir) / "state.json"))
+            main.repository = JsonStateRepository(state)
+            main.repository.create_project(Project(id="proj_a", name="A", tender_name="Tender", company_id="comp_a"))
+            token = main.tenant_context.set("comp_b")
+            try:
+                with self.assertRaises(main.HTTPException) as raised:
+                    main.get_project_or_404("proj_a")
+                self.assertEqual(raised.exception.status_code, 404)
+            finally:
+                main.tenant_context.reset(token)
+                main.repository = original_repository
+
+    def test_tenant_project_list_only_returns_current_company(self):
+        original_repository = main.repository
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = InMemoryStore(storage_root=temp_dir, state_file=str(Path(temp_dir) / "state.json"))
+            main.repository = JsonStateRepository(state)
+            main.repository.create_project(Project(id="proj_a", name="A", tender_name="Tender", company_id="comp_a"))
+            main.repository.create_project(Project(id="proj_b", name="B", tender_name="Tender", company_id="comp_b"))
+            token = main.tenant_context.set("comp_b")
+            try:
+                page = main._list_tenant_projects("comp_b")
+                self.assertEqual(page.total, 1)
+                self.assertEqual(page.items[0].id, "proj_b")
+            finally:
+                main.tenant_context.reset(token)
+                main.repository = original_repository
 
 
 if __name__ == "__main__":

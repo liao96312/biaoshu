@@ -61,6 +61,7 @@ docker compose logs -f api
 ## 安全配置
 
 - 认证：本地默认开放；设置 `BID_AGENT_TOKEN` 后 API 需要 `Authorization: Bearer <token>`，设置 `BID_AGENT_API_KEYS` 后支持 `X-API-Key`。
+- 租户隔离：请求带 `X-Company-ID` 后，项目、资料、文件和导出会限制在该企业范围内；不带该头时保留本地演示模式。
 - 上传限制：`BID_AGENT_MAX_UPLOAD_BYTES` 默认 52428800，即单文件 50MB。超过限制的上传会被拒绝并清理临时文件。
 - 文件边界：上传只允许 PDF、Word、Excel、文本、Markdown 和常见图片格式；下载和删除会校验文件仍在 `storage/` 下，避免路径穿越。
 - 健康检查：`/healthz` 只返回服务状态、存储后端和任务队列类型，不暴露本机绝对路径。

@@ -1,12 +1,26 @@
 import type { ApiEnvelope, ExportCreated } from "./types";
 
 const authToken = () => localStorage.getItem("bidAgentToken")?.trim();
+const companyTenant = () => localStorage.getItem("bidAgentCompanyId")?.trim();
+
+export function setCompanyTenant(companyId: string) {
+  const value = companyId.trim();
+  if (value) {
+    localStorage.setItem("bidAgentCompanyId", value);
+  } else {
+    localStorage.removeItem("bidAgentCompanyId");
+  }
+}
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   const token = authToken();
+  const tenant = companyTenant();
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
+  }
+  if (tenant) {
+    headers.set("X-Company-ID", tenant);
   }
 
   const response = await fetch(path, {
