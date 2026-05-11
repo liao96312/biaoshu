@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 import app.main as main
 from app.models import ProjectCreate
@@ -36,9 +37,24 @@ class ApiProjectCompanyTests(unittest.TestCase):
         self.assertNotIn("storage_root", payload)
         self.assertNotIn("state_file", payload)
 
+    def test_ready_response_reports_storage_check(self):
+        response = main.readyz()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'"storage"', response.body)
+
     def test_safe_download_name_strips_path_and_control_characters(self):
         self.assertEqual(main._safe_download_name("../evil\r\n.txt", "fallback.txt"), "evil .txt")
         self.assertEqual(main._safe_download_name("", "fallback.txt"), "fallback.txt")
+
+    def test_request_id_prefers_valid_header(self):
+        request = Mock()
+        request.headers = {"x-request-id": "trace-123"}
+        self.assertEqual(main._request_id_from_headers(request), "trace-123")
+
+    def test_request_id_rejects_control_characters(self):
+        request = Mock()
+        request.headers = {"x-request-id": "bad\ntrace"}
+        self.assertTrue(main._request_id_from_headers(request).startswith("req_"))
 
 
 if __name__ == "__main__":

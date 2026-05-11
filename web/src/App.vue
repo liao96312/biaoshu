@@ -464,13 +464,13 @@ async function loadSystem() {
 async function loadHealth() {
   healthStatus.value = "checking";
   try {
-    const response = await fetch("/healthz", { cache: "no-store" });
+    const response = await fetch("/readyz", { cache: "no-store" });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
     const data = await response.json();
     healthStatus.value = "ok";
-    healthDetail.value = `后端在线 · ${data.storage || "storage"}`;
+    healthDetail.value = `后端就绪 · ${Object.keys(data.checks || {}).join("、") || "checks"}`;
   } catch (error) {
     healthStatus.value = "down";
     healthDetail.value = error instanceof Error ? error.message : "后端不可用";

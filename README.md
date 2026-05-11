@@ -36,6 +36,7 @@ npm run dev
 - 前端工作台：http://127.0.0.1:5173/
 - API 文档：http://127.0.0.1:8000/docs
 - 健康检查：http://127.0.0.1:8000/healthz
+- 就绪检查：http://127.0.0.1:8000/readyz
 - 旧版后端静态页：http://127.0.0.1:8000/app/
 
 ## Docker Compose
@@ -63,6 +64,7 @@ docker compose logs -f api
 - 上传限制：`BID_AGENT_MAX_UPLOAD_BYTES` 默认 52428800，即单文件 50MB。超过限制的上传会被拒绝并清理临时文件。
 - 文件边界：上传只允许 PDF、Word、Excel、文本、Markdown 和常见图片格式；下载和删除会校验文件仍在 `storage/` 下，避免路径穿越。
 - 健康检查：`/healthz` 只返回服务状态、存储后端和任务队列类型，不暴露本机绝对路径。
+- 就绪检查：`/readyz` 会检查本地存储可写性，并在启用 PostgreSQL 时检查数据库读写链路可用性。
 - 前端代理：生产容器由 Nginx 代理 `/api/`、`/ws/` 和 `/healthz` 到后端，避免浏览器跨域配置扩大暴露面。
 
 ## 核心能力

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import hmac
+import json
+import logging
 import re
 import shutil
 import time
+from http import HTTPStatus
 from pathlib import Path
+from uuid import uuid4
 from zipfile import ZipFile
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
@@ -63,6 +68,11 @@ from app.task_queue import task_queue
 
 app = FastAPI(title="Bid Risk Control Agent", version="0.2.0")
 ALLOWED_UPLOAD_SUFFIXES = {".pdf", ".docx", ".xlsx", ".xlsm", ".txt", ".md", ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
+REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+request_id_context: contextvars.ContextVar[str | None] = contextvars.ContextVar("request_id", default=None)
+logger = logging.getLogger("bid_agent")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
 static_dir = Path(__file__).parent / "static"
 if static_dir.exists():
     app.mount("/app", StaticFiles(directory=static_dir, html=True), name="web")
@@ -86,6 +96,20 @@ def healthz() -> dict:
         "storage": repository.name,
         "task_queue": task_queue.name,
     }
+
+
+@app.get("/readyz")
+def readyz() -> JSONResponse:
+    checks = _readiness_checks()
+    ready = all(item["ok"] for item in checks.values())
+    status_code = 200 if ready else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": "ready" if ready else "not_ready",
+            "checks": checks,
+        },
+    )
 
 
 @app.get("/api/v1/system/capabilities")
@@ -155,7 +179,7 @@ def ok(data=None, message: str = "success") -> ApiResponse:
         code=0,
         message=message,
         data=data or {},
-        request_id=repository.new_id("req"),
+        request_id=request_id_context.get() or repository.new_id("req"),
         timestamp=int(time.time()),
     )
 
@@ -168,33 +192,33 @@ def error_response(code: int, message: str, status_code: int = 400, data=None) -
 
 @app.middleware("http")
 async def auth_and_rate_headers(request: Request, call_next):
+    started = time.perf_counter()
+    request_id = _request_id_from_headers(request)
+    token_ctx = request_id_context.set(request_id)
     rate_key = request.headers.get("x-api-key") or (request.client.host if request.client else "anonymous")
     rate = rate_limiter.check(rate_key)
-    if not rate.allowed and request.url.path.startswith("/api/"):
-        response = error_response(4003, "rate limit exceeded", 429)
-        response.headers["X-RateLimit-Limit"] = str(rate.limit)
-        response.headers["X-RateLimit-Remaining"] = str(rate.remaining)
-        response.headers["X-RateLimit-Reset"] = str(rate.reset)
+    try:
+        if not rate.allowed and request.url.path.startswith("/api/"):
+            response = error_response(4003, "rate limit exceeded", 429)
+            _record_activity(request, response.status_code)
+            return _finalize_response(request, response, rate, started, request_id)
+        if request.url.path.startswith("/api/"):
+            token = settings.token
+            api_keys = set(settings.api_keys)
+            if token or api_keys:
+                authorization = request.headers.get("authorization", "")
+                api_key = request.headers.get("x-api-key", "")
+                bearer_ok = bool(token and hmac.compare_digest(authorization, f"Bearer {token}"))
+                api_key_ok = any(hmac.compare_digest(api_key, item) for item in api_keys)
+                if not bearer_ok and not api_key_ok:
+                    response = error_response(4001, "unauthorized", 401)
+                    _record_activity(request, response.status_code)
+                    return _finalize_response(request, response, rate, started, request_id)
+        response = await call_next(request)
         _record_activity(request, response.status_code)
-        return response
-    if request.url.path.startswith("/api/"):
-        token = settings.token
-        api_keys = set(settings.api_keys)
-        if token or api_keys:
-            authorization = request.headers.get("authorization", "")
-            api_key = request.headers.get("x-api-key", "")
-            bearer_ok = bool(token and hmac.compare_digest(authorization, f"Bearer {token}"))
-            api_key_ok = any(hmac.compare_digest(api_key, item) for item in api_keys)
-            if not bearer_ok and not api_key_ok:
-                response = error_response(4001, "unauthorized", 401)
-                _record_activity(request, response.status_code)
-                return response
-    response = await call_next(request)
-    response.headers["X-RateLimit-Limit"] = str(rate.limit)
-    response.headers["X-RateLimit-Remaining"] = str(rate.remaining)
-    response.headers["X-RateLimit-Reset"] = str(rate.reset)
-    _record_activity(request, response.status_code)
-    return response
+        return _finalize_response(request, response, rate, started, request_id)
+    finally:
+        request_id_context.reset(token_ctx)
 
 
 @app.exception_handler(HTTPException)
@@ -933,6 +957,75 @@ def _request_actor(request: Request) -> str:
     if request.headers.get("authorization"):
         return "bearer_token"
     return request.client.host if request.client else "anonymous"
+
+
+def _request_id_from_headers(request: Request) -> str:
+    header_value = request.headers.get("x-request-id", "").strip()
+    if header_value and REQUEST_ID_PATTERN.fullmatch(header_value):
+        return header_value
+    return f"req_{uuid4().hex}"
+
+
+def _finalize_response(request: Request, response, rate, started: float, request_id: str):
+    response.headers["X-Request-ID"] = request_id
+    response.headers["X-RateLimit-Limit"] = str(rate.limit)
+    response.headers["X-RateLimit-Remaining"] = str(rate.remaining)
+    response.headers["X-RateLimit-Reset"] = str(rate.reset)
+    _add_security_headers(response)
+    _log_access(request, response.status_code, started, request_id)
+    return response
+
+
+def _add_security_headers(response) -> None:
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    response.headers.setdefault("Cache-Control", "no-store")
+
+
+def _log_access(request: Request, status_code: int, started: float, request_id: str) -> None:
+    duration_ms = round((time.perf_counter() - started) * 1000, 2)
+    payload = {
+        "event": "http_request",
+        "request_id": request_id,
+        "method": request.method,
+        "path": request.url.path,
+        "status_code": status_code,
+        "duration_ms": duration_ms,
+        "client": request.client.host if request.client else "unknown",
+    }
+    level = logging.ERROR if status_code >= 500 else logging.WARNING if status_code >= 400 else logging.INFO
+    logger.log(level, json.dumps(payload, ensure_ascii=False, sort_keys=True))
+
+
+def _readiness_checks() -> dict[str, dict[str, object]]:
+    checks = {
+        "storage": _check_storage_writable(),
+    }
+    postgres = getattr(repository, "postgres", None)
+    if postgres is not None:
+        checks["postgres"] = _check_postgres(postgres)
+    return checks
+
+
+def _check_storage_writable() -> dict[str, object]:
+    try:
+        repository.storage_root.mkdir(parents=True, exist_ok=True)
+        probe = repository.storage_root / ".readyz"
+        probe.write_text(str(time.time()), encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return {"ok": True}
+    except Exception as exc:
+        return {"ok": False, "error": exc.__class__.__name__}
+
+
+def _check_postgres(postgres) -> dict[str, object]:
+    try:
+        postgres.metrics()
+        return {"ok": True}
+    except Exception as exc:
+        return {"ok": False, "error": exc.__class__.__name__}
 
 
 def _project_id_from_path(path: str) -> str | None:

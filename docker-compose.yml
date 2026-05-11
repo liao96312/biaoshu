@@ -8,7 +8,7 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz >/dev/null"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/readyz >/dev/null"]
       interval: 30s
       timeout: 5s
       retries: 3
