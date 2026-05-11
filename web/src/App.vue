@@ -94,9 +94,9 @@ const tenderInput = ref<HTMLInputElement | null>(null);
 const materialInput = ref<HTMLInputElement | null>(null);
 
 const form = reactive({
-  name: "智能标书风控项目",
-  tender_name: "招标文件复核",
-  company_id: "comp_demo",
+  name: "",
+  tender_name: "",
+  company_id: "",
   material_type: "product"
 });
 
@@ -534,15 +534,15 @@ onMounted(async () => {
         </div>
         <label>
           项目名称
-          <input v-model="form.name" />
+          <input v-model="form.name" placeholder="示例：智能标书风控项目" />
         </label>
         <label>
           招标文件名称
-          <input v-model="form.tender_name" />
+          <input v-model="form.tender_name" placeholder="示例：某某系统采购招标文件" />
         </label>
         <label>
           企业 ID
-          <input v-model="form.company_id" />
+          <input v-model="form.company_id" placeholder="示例：comp_demo" />
         </label>
         <button class="primary full" :disabled="loading" @click="createProject">
           <PackageCheck :size="16" />
