@@ -12,7 +12,7 @@
 
 ![标书风控 Agent](web/public/bid-risk-visual.png)
 
-## 覆盖能力
+## 核心能力
 
 - 项目创建和最近项目归档门禁。
 - PDF、Word、Excel、图片和文本招标文件上传解析。
@@ -156,6 +156,6 @@ tests/     API、解析、导出、任务、规则和工作流回归测试
 web/       Vue 3 + Vite 工作台
 ```
 
-## 简历描述
+## 当前状态
 
 可描述为：独立完成一个面向投标场景的标书风控 Agent 系统，基于 FastAPI + Vue 3 实现招标文件解析、废标风险识别、技术偏离核对、企业资料推荐、人工复核闭环和导出交付。系统预留 PostgreSQL、Redis/Celery、Qdrant、MinIO 和 LLM 适配边界，具备本地可运行、容器化部署和完整冒烟测试能力。

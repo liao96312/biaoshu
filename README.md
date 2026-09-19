@@ -12,7 +12,7 @@ Bid Risk Control Agent is an intelligent bid-document review system. It helps te
 
 ![Bid Risk Control Agent](web/public/bid-risk-visual.png)
 
-## What It Covers
+## Features
 
 - Project creation and recent-project archive gate.
 - Tender document upload and parsing for PDF, Word, Excel, images, and text files.
@@ -156,6 +156,6 @@ tests/     API, parser, export, task, rule, and workflow regression tests
 web/       Vue 3 + Vite workbench
 ```
 
-## Resume Summary
+## Status
 
 Built a bid-risk-control Agent system with FastAPI and Vue 3, covering tender parsing, disqualification-risk detection, technical-deviation checking, company material recommendation, human review workflow, and export delivery. The system includes local runnable storage, containerized deployment, CI smoke tests, and reserved boundaries for PostgreSQL, Redis/Celery, Qdrant, MinIO, and LLM adapters.
