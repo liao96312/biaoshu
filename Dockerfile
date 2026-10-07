@@ -3,6 +3,12 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
+# Native libs needed by the OCR stack: libgomp1 for paddlepaddle,
+# libgl1/libglib2.0-0 for opencv (pulled in by paddleocr).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY requirements.txt .

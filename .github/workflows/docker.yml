@@ -1,0 +1,64 @@
+name: Docker image
+
+# The production image (requirements-prod.txt: paddlepaddle, paddleocr, ...) is large,
+# so it is only built when the image inputs change instead of on every PR.
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "requirements.txt"
+      - "requirements-prod.txt"
+      - ".github/workflows/docker.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "requirements.txt"
+      - "requirements-prod.txt"
+      - ".github/workflows/docker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build production image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build image
+        run: docker build -t biaoshu:ci .
+
+      - name: Check installed packages
+        run: docker run --rm biaoshu:ci pip check
+
+      - name: Check OCR runtime loads
+        run: |
+          docker run --rm biaoshu:ci python -c "
+          import cv2, paddle
+          from paddleocr import PaddleOCR
+          paddle.utils.run_check()
+          print('cv2', cv2.__version__, 'paddle', paddle.__version__)
+          "
+
+      - name: Check API starts
+        run: |
+          docker run -d --name api -p 8000:8000 biaoshu:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/healthz; then exit 0; fi
+            sleep 1
+          done
+          docker logs api
+          exit 1
+
+      - name: Image size
+        if: always()
+        run: docker image ls biaoshu:ci
