@@ -7,3 +7,8 @@ minio==7.2.20
 langgraph==1.2.14
 python-docx==1.2.0
 paddleocr==2.10.0
+# paddleocr 2.x needs the Paddle runtime (CPU build). 3.2.2 is the newest release
+# with cp312 wheels for both x86_64 and aarch64; verified with paddleocr 2.10.0.
+paddlepaddle==3.2.2
+# paddle imports setuptools at runtime; python:3.12-slim no longer ships it.
+setuptools==84.0.0
