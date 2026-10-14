@@ -6,7 +6,7 @@ qdrant-client==1.19.1
 minio==7.2.20
 langgraph==1.2.14
 python-docx==1.2.0
-paddleocr==2.10.0
+paddleocr==3.7.0
 # paddleocr 2.x needs the Paddle runtime (CPU build). 3.2.2 is the newest release
 # with cp312 wheels for both x86_64 and aarch64; verified with paddleocr 2.10.0.
 paddlepaddle==3.3.1
